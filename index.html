@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stark Dust Interface</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0b0b0b; font-family: 'Segoe UI', sans-serif; }
+        
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 280px;
+            padding: 20px;
+            background: rgba(10, 10, 12, 0.85);
+            border: 1px solid rgba(194, 178, 128, 0.3);
+            border-radius: 8px;
+            color: #EEDC82;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+            z-index: 100;
+        }
+
+        h1 { margin: 0 0 10px 0; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; color: #D4AF37; }
+        .status-line { font-size: 14px; margin-bottom: 5px; color: #aaa; }
+        .status-line span { color: #fff; font-weight: bold; }
+        
+        .legend { margin-top: 15px; font-size: 12px; color: #888; border-top: 1px solid #333; padding-top: 10px; }
+        .legend div { margin-bottom: 4px; }
+        .highlight { color: #D4AF37; font-weight: bold; }
+
+        #gesture-display {
+            font-size: 18px;
+            font-weight: bold;
+            color: #D4AF37;
+            margin-top: 10px;
+            text-align: center;
+            padding: 5px;
+            border: 1px solid #333;
+            background: rgba(0,0,0,0.5);
+        }
+
+        /* Hide raw video */
+        #input_video { display: none; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h1>Dust Particle System</h1>
+        <div class="status-line">System: <span id="sys-status">Initializing...</span></div>
+        <div id="gesture-display">WAITING</div>
+
+        <div class="legend">
+            <div><span class="highlight">Fist</span> : Assemble Core</div>
+            <div><span class="highlight">Open</span> : Shatter / Explode</div>
+            <div><span class="highlight">Gun (L)</span> : Depth Control</div>
+            <div><span class="highlight">Swipe</span> : Rotate View</div>
+        </div>
+    </div>
+
+    <video id="input_video"></video>
+
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        // --- CONFIGURATION ---
+        const PARTICLE_COUNT = 60000;
+        const COLORS = [0xC2B280, 0xD4AF37, 0xEEDC82]; // Ochre, Gold, Sandy
+        
+        // --- THREE.JS SETUP ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050505, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 50;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio); // Optimize for high DPI
+        document.body.appendChild(renderer.domElement);
+
+        // --- TEXTURE GENERATION (Dust Look) ---
+        function createDustTexture() {
+            const size = 64;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const context = canvas.getContext('2d');
+
+            // Soft radial gradient for bokeh effect
+            const gradient = context.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)'); // Bright center
+            gradient.addColorStop(0.2, 'rgba(255, 240, 200, 0.8)'); // Soft yellow core
+            gradient.addColorStop(0.5, 'rgba(212, 175, 55, 0.3)'); // Gold misty edge
+            gradient.addColorStop(1.0, 'rgba(0, 0, 0, 0)'); // Transparent
+
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, size, size);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+
+        // --- PARTICLE GEOMETRY ---
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const targets = new Float32Array(PARTICLE_COUNT * 3); // Assembled state
+        const velocities = new Float32Array(PARTICLE_COUNT * 3); // For shattering
+        const colors = new Float32Array(PARTICLE_COUNT * 3);
+        const sizes = new Float32Array(PARTICLE_COUNT);
+
+        const colorObj = new THREE.Color();
+
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            let x, y, z;
+
+            // 60% Sphere Core, 40% Saturn Ring
+            if (i < PARTICLE_COUNT * 0.6) {
+                // Sphere
+                const r = 15 * Math.cbrt(Math.random());
+                const theta = Math.random() * 2 * Math.PI;
+                const phi = Math.acos(2 * Math.random() - 1);
+                x = r * Math.sin(phi) * Math.cos(theta);
+                y = r * Math.sin(phi) * Math.sin(theta);
+                z = r * Math.cos(phi);
+            } else {
+                // Disk / Ring
+                const r = 20 + Math.random() * 25; // 20 to 45 radius
+                const theta = Math.random() * 2 * Math.PI;
+                x = r * Math.cos(theta);
+                y = (Math.random() - 0.5) * 1.0; // Very flat Y
+                z = r * Math.sin(theta);
+            }
+
+            // Target (Assembled)
+            targets[i*3] = x;
+            targets[i*3+1] = y;
+            targets[i*3+2] = z;
+
+            // Start randomly scattered (waiting for assembly)
+            positions[i*3] = (Math.random() - 0.5) * 200;
+            positions[i*3+1] = (Math.random() - 0.5) * 200;
+            positions[i*3+2] = (Math.random() - 0.5) * 200;
+
+            // Colors
+            const hex = COLORS[Math.floor(Math.random() * COLORS.length)];
+            colorObj.setHex(hex);
+            colors[i*3] = colorObj.r;
+            colors[i*3+1] = colorObj.g;
+            colors[i*3+2] = colorObj.b;
+
+            // Varied sizes for dust effect
+            sizes[i] = Math.random() * 0.8 + 0.2;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('target', new THREE.BufferAttribute(targets, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        const material = new THREE.PointsMaterial({
+            size: 0.5,
+            vertexColors: true,
+            map: createDustTexture(),
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true,
+            opacity: 0.6,
+            sizeAttenuation: true
+        });
+
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+
+        // --- INTERACTION LOGIC ---
+        let CURRENT_GESTURE = "NONE"; // NONE, FIST, OPEN, GUN
+        let rotationVelocity = 0.001;
+        let lastHandX = 0.5;
+        
+        // Depth Control Variables
+        let baseScale = 1;
+        let targetZ = 0; 
+
+        const uiStatus = document.getElementById('sys-status');
+        const uiGesture = document.getElementById('gesture-display');
+        const videoElement = document.getElementById('input_video');
+
+        // Gesture Detection Helpers
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        function analyzeGesture(landmarks) {
+            const wrist = landmarks[0];
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const middleTip = landmarks[12];
+            const ringTip = landmarks[16];
+            const pinkyTip = landmarks[20];
+
+            const indexMCP = landmarks[5]; // Knuckle
+            const middleMCP = landmarks[9];
+            const ringMCP = landmarks[13];
+            const pinkyMCP = landmarks[17];
+
+            // 1. Is Fist? (Tips close to wrist/knuckles)
+            let foldedCount = 0;
+            if (getDistance(indexTip, wrist) < getDistance(indexMCP, wrist)) foldedCount++;
+            if (getDistance(middleTip, wrist) < getDistance(middleMCP, wrist)) foldedCount++;
+            if (getDistance(ringTip, wrist) < getDistance(ringMCP, wrist)) foldedCount++;
+            if (getDistance(pinkyTip, wrist) < getDistance(pinkyMCP, wrist)) foldedCount++;
+
+            // 2. Is Gun? (Index extended, Thumb Extended, others folded)
+            const indexExtended = getDistance(indexTip, wrist) > getDistance(indexMCP, wrist) * 1.2;
+            const middleFolded = getDistance(middleTip, wrist) < getDistance(middleMCP, wrist);
+            const ringFolded = getDistance(ringTip, wrist) < getDistance(ringMCP, wrist);
+            const pinkyFolded = getDistance(pinkyTip, wrist) < getDistance(pinkyMCP, wrist);
+            
+            // Check thumb extension (simplified)
+            const thumbExtended = getDistance(thumbTip, indexMCP) > 0.1; 
+
+            if (indexExtended && middleFolded && ringFolded && pinkyFolded && thumbExtended) {
+                return "GUN";
+            }
+            if (foldedCount >= 3) {
+                return "FIST";
+            }
+            if (foldedCount === 0) {
+                return "OPEN";
+            }
+            return "SWIPE_MODE";
+        }
+
+        function getHandBoundingBoxArea(landmarks) {
+            let minX = 1, minY = 1, maxX = 0, maxY = 0;
+            for(let l of landmarks) {
+                if(l.x < minX) minX = l.x;
+                if(l.x > maxX) maxX = l.x;
+                if(l.y < minY) minY = l.y;
+                if(l.y > maxY) maxY = l.y;
+            }
+            // Width * Height
+            return (maxX - minX) * (maxY - minY);
+        }
+
+        function onResults(results) {
+            uiStatus.innerText = "Tracking Active";
+            uiStatus.style.color = "#00ff00";
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                const gesture = analyzeGesture(landmarks);
+                CURRENT_GESTURE = gesture;
+                uiGesture.innerText = gesture;
+
+                // --- X-AXIS SWIPE LOGIC ---
+                const currentX = landmarks[0].x;
+                const deltaX = currentX - lastHandX;
+                // Add momentum if moving significantly
+                if (Math.abs(deltaX) > 0.01) {
+                    rotationVelocity -= deltaX * 0.05; // Reverse direction for natural mirror feel
+                }
+                lastHandX = currentX;
+
+                // --- Z-AXIS DEPTH CONTROL (GUN) ---
+                if (gesture === "GUN") {
+                    // Calculate area. Approx range is 0.02 (far) to 0.15 (close)
+                    const area = getHandBoundingBoxArea(landmarks);
+                    
+                    // Logic: 
+                    // Hand Large (Close to cam) -> Object moves Away (Z increases, Scale down)
+                    // Hand Small (Far from cam) -> Object moves Closer (Z decreases, Scale up)
+                    
+                    // Normalize area roughly between 0.03 and 0.12
+                    let norm = (area - 0.03) / (0.12 - 0.03); 
+                    if(norm < 0) norm = 0; if(norm > 1) norm = 1;
+
+                    // If hand is CLOSE (norm 1), push object AWAY (negative Z or smaller scale)
+                    // Let's modify the Object Z Position
+                    // Range: Close (-20) to Far (20)
+                    
+                    // Moving hand closer (Big Area) -> Push object to -50
+                    // Moving hand back (Small Area) -> Pull object to 20
+                    const targetZPos = 20 - (norm * 70); 
+                    
+                    // Smoothly interpolate current Z to target Z
+                    targetZ = targetZPos;
+                } else {
+                    // Reset Z when not in Gun mode
+                    targetZ = 0;
+                }
+
+            } else {
+                uiGesture.innerText = "WAITING...";
+                uiStatus.innerText = "No Hand Detected";
+                uiStatus.style.color = "#ffaa00";
+            }
+        }
+
+        // --- MEDIAPIPE INIT ---
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        cameraUtils.start();
+
+        // --- ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // 1. Update Particle Physics
+            const posAttr = geometry.attributes.position;
+            const targetAttr = geometry.attributes.target;
+            const sizeAttr = geometry.attributes.size;
+
+            const speed = 4.0 * delta; // Assembly speed
+
+            // Gun Interaction Smoothing (Camera/Group Z position)
+            // We move the particle system container smoothly
+            particleSystem.position.z += (targetZ - particleSystem.position.z) * 2 * delta;
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const px = posAttr.getX(i);
+                const py = posAttr.getY(i);
+                const pz = posAttr.getZ(i);
+
+                const tx = targetAttr.getX(i);
+                const ty = targetAttr.getY(i);
+                const tz = targetAttr.getZ(i);
+
+                // State Machine
+                if (CURRENT_GESTURE === "OPEN") {
+                    // SHATTER: Explode outward from center
+                    // Calculate vector from center
+                    const dist = Math.sqrt(px*px + py*py + pz*pz) + 0.1;
+                    const dirX = px / dist;
+                    const dirY = py / dist;
+                    const dirZ = pz / dist;
+
+                    // Add velocity
+                    posAttr.setXYZ(i, 
+                        px + dirX * 40 * delta, 
+                        py + dirY * 40 * delta, 
+                        pz + dirZ * 40 * delta
+                    );
+
+                } else if (CURRENT_GESTURE === "FIST") {
+                    // ASSEMBLE: Strong pull to target
+                    posAttr.setXYZ(i,
+                        px + (tx - px) * speed,
+                        py + (ty - py) * speed,
+                        pz + (tz - pz) * speed
+                    );
+                } else {
+                    // IDLE / GUN / SWIPE: Float gently near target
+                    // Add subtle noise/drift
+                    const driftX = Math.sin(time + i) * 0.05;
+                    const driftY = Math.cos(time + i * 0.5) * 0.05;
+                    
+                    posAttr.setXYZ(i,
+                        px + (tx - px) * speed * 0.5 + driftX,
+                        py + (ty - py) * speed * 0.5 + driftY,
+                        pz + (tz - pz) * speed * 0.5
+                    );
+                }
+            }
+
+            posAttr.needsUpdate = true;
+
+            // 2. Global Rotation (Swipe)
+            // Apply friction
+            rotationVelocity *= 0.95; 
+            // Keep a minimum idle spin
+            if (Math.abs(rotationVelocity) < 0.0005) rotationVelocity = 0.0005;
+
+            particleSystem.rotation.y += rotationVelocity;
+
+            // 3. Render
+            renderer.render(scene, camera);
+        }
+
+        // Handle Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+    </script>
+</body>
+</html>
