@@ -183,6 +183,7 @@
         let CURRENT_GESTURE = "NONE"; // NONE, FIST, OPEN, GUN
         let rotationVelocity = 0.001;
         let lastHandX = 0.5;
+        let handWasPresent = false; // Tracks whether the previous frame had a hand
         
         // Depth Control Variables
         let baseScale = 1;
@@ -262,12 +263,19 @@
 
                 // --- X-AXIS SWIPE LOGIC ---
                 const currentX = landmarks[0].x;
-                const deltaX = currentX - lastHandX;
-                // Add momentum if moving significantly
-                if (Math.abs(deltaX) > 0.01) {
-                    rotationVelocity -= deltaX * 0.05; // Reverse direction for natural mirror feel
+                // Only measure a swipe against the previous frame when the hand
+                // was actually present in it. Otherwise the hand may have left
+                // and re-entered somewhere else, and the gap to the stale
+                // lastHandX would be misread as one huge swipe.
+                if (handWasPresent) {
+                    const deltaX = currentX - lastHandX;
+                    // Add momentum if moving significantly
+                    if (Math.abs(deltaX) > 0.01) {
+                        rotationVelocity -= deltaX * 0.05; // Reverse direction for natural mirror feel
+                    }
                 }
                 lastHandX = currentX;
+                handWasPresent = true;
 
                 // --- Z-AXIS DEPTH CONTROL (GUN) ---
                 if (gesture === "GUN") {
@@ -298,6 +306,7 @@
                 }
 
             } else {
+                handWasPresent = false;
                 uiGesture.innerText = "WAITING...";
                 uiStatus.innerText = "No Hand Detected";
                 uiStatus.style.color = "#ffaa00";
