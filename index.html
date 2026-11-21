@@ -307,6 +307,10 @@
 
             } else {
                 handWasPresent = false;
+                // No hand, no gesture: stop assembling, shattering, or
+                // holding a depth target from the last seen pose.
+                CURRENT_GESTURE = "NONE";
+                targetZ = 0;
                 uiGesture.innerText = "WAITING...";
                 uiStatus.innerText = "No Hand Detected";
                 uiStatus.style.color = "#ffaa00";

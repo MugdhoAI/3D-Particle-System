@@ -82,7 +82,7 @@ const sandbox = {
 vm.createContext(sandbox);
 
 // Expose the page's own onResults and rotation state to the test.
-const hook = '\n;globalThis.__hook = { onResults, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; } };';
+const hook = '\n;globalThis.__hook = { onResults, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; } };';
 vm.runInContext(match[1] + hook, sandbox);
 const hookObj = sandbox.__hook;
 assert.ok(hookObj && typeof hookObj.onResults === 'function', 'onResults hook missing');
@@ -99,6 +99,18 @@ function handResults(wristX) {
 }
 const noHandResults = { multiHandLandmarks: [] };
 
+function gunResults(wristX) {
+    // Index extended, thumb extended, middle, ring, and pinky folded:
+    // the page reads this as the GUN depth-control pose.
+    const landmarks = [];
+    for (let i = 0; i < 21; i++) landmarks.push({ x: wristX + 0.05, y: 0.5, z: 0 });
+    landmarks[0] = { x: wristX, y: 0.5, z: 0 }; // wrist
+    landmarks[4] = { x: wristX + 0.3, y: 0.5, z: 0 }; // thumb tip, far from index knuckle
+    landmarks[8] = { x: wristX + 0.2, y: 0.5, z: 0 }; // index tip, extended
+    for (const tip of [12, 16, 20]) landmarks[tip] = { x: wristX + 0.01, y: 0.5, z: 0 }; // folded tips
+    return { multiHandLandmarks: [landmarks] };
+}
+
 test('hand re-entering at a new position does not spin the view', () => {
     hookObj.onResults(handResults(0.2)); // hand present at x = 0.2
     hookObj.onResults(noHandResults);    // hand leaves the frame
@@ -114,4 +126,13 @@ test('a real swipe across consecutive frames still adds momentum', () => {
     hookObj.onResults(handResults(0.6)); // moves 0.2 in the next frame
     assert.ok(Math.abs(hookObj.velocity - (-0.2 * 0.05)) < 1e-9,
         `expected velocity -0.01 from a 0.2 swipe, got ${hookObj.velocity}`);
+});
+
+test('losing the hand resets the gesture and depth target', () => {
+    hookObj.onResults(gunResults(0.5)); // GUN pose sets a depth target
+    assert.equal(hookObj.gesture, 'GUN');
+    assert.notEqual(hookObj.targetZ, 0);
+    hookObj.onResults(noHandResults); // hand leaves the frame
+    assert.equal(hookObj.gesture, 'NONE');
+    assert.equal(hookObj.targetZ, 0);
 });
