@@ -40,52 +40,59 @@ class StubPoints {
 class StubRenderer {
     constructor() { this.domElement = {}; }
     setSize() {}
-    setPixelRatio() {}
+    setPixelRatio(r) { this.pixelRatio = r; }
     render() {}
 }
 class StubClock { getDelta() { return 0.016; } getElapsedTime() { return 0; } }
 class StubHands { setOptions() {} onResults() {} }
 class StubCamera { start() {} }
 
-const sandbox = {
-    console,
-    window: { innerWidth: 800, innerHeight: 600, devicePixelRatio: 1, addEventListener() {} },
-    document: {
-        getElementById: () => ({ innerText: '', style: {} }),
-        createElement: () => ({
-            width: 0,
-            height: 0,
-            getContext: () => ({
-                createRadialGradient: () => ({ addColorStop() {} }),
-                fillRect() {},
+// Load the page once per device pixel ratio, so tests can check behaviour
+// that depends on it, such as the pixel ratio cap.
+function loadPage(devicePixelRatio) {
+    const sandbox = {
+        console,
+        window: { innerWidth: 800, innerHeight: 600, devicePixelRatio, addEventListener() {} },
+        document: {
+            getElementById: () => ({ innerText: '', style: {} }),
+            createElement: () => ({
+                width: 0,
+                height: 0,
+                getContext: () => ({
+                    createRadialGradient: () => ({ addColorStop() {} }),
+                    fillRect() {},
+                }),
             }),
-        }),
-        body: { appendChild() {} },
-    },
-    requestAnimationFrame: () => {},
-    THREE: {
-        Scene: class { add() {} },
-        FogExp2: class {},
-        PerspectiveCamera: class { constructor() { this.position = { z: 0 }; } updateProjectionMatrix() {} },
-        WebGLRenderer: StubRenderer,
-        CanvasTexture: class {},
-        BufferGeometry: StubBufferGeometry,
-        BufferAttribute: StubBufferAttribute,
-        Color: StubColor,
-        PointsMaterial: class {},
-        Points: StubPoints,
-        Clock: StubClock,
-    },
-    Hands: StubHands,
-    Camera: StubCamera,
-};
-vm.createContext(sandbox);
+            body: { appendChild() {} },
+        },
+        requestAnimationFrame: () => {},
+        THREE: {
+            Scene: class { add() {} },
+            FogExp2: class {},
+            PerspectiveCamera: class { constructor() { this.position = { z: 0 }; } updateProjectionMatrix() {} },
+            WebGLRenderer: StubRenderer,
+            CanvasTexture: class {},
+            BufferGeometry: StubBufferGeometry,
+            BufferAttribute: StubBufferAttribute,
+            Color: StubColor,
+            PointsMaterial: class {},
+            Points: StubPoints,
+            Clock: StubClock,
+        },
+        Hands: StubHands,
+        Camera: StubCamera,
+    };
+    vm.createContext(sandbox);
 
-// Expose the page's own onResults and rotation state to the test.
-const hook = '\n;globalThis.__hook = { onResults, animate, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; }, get positions() { return geometry.attributes.position.array; } };';
-vm.runInContext(match[1] + hook, sandbox);
-const hookObj = sandbox.__hook;
-assert.ok(hookObj && typeof hookObj.onResults === 'function', 'onResults hook missing');
+    // Expose the page's own onResults and rotation state to the test.
+    const hook = '\n;globalThis.__hook = { onResults, animate, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; }, get positions() { return geometry.attributes.position.array; }, get pixelRatio() { return renderer.pixelRatio; } };';
+    vm.runInContext(match[1] + hook, sandbox);
+    const hookObj = sandbox.__hook;
+    assert.ok(hookObj && typeof hookObj.onResults === 'function', 'onResults hook missing');
+    return hookObj;
+}
+
+const hookObj = loadPage(1);
 
 function handResults(wristX) {
     // 21 landmarks. Fingertips sit farther from the wrist than the knuckles,
@@ -148,4 +155,9 @@ test('shattered particles stay within the bounding radius', () => {
     }
     // Positions live in a Float32Array, so allow float32 rounding past 120.
     assert.ok(maxR <= 120 + 1e-4, `expected max radius <= 120, got ${maxR}`);
+});
+
+test('pixel ratio is capped at 2 on high-DPI screens', () => {
+    const page = loadPage(3);
+    assert.equal(page.pixelRatio, 2);
 });

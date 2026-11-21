@@ -84,7 +84,7 @@
 
         const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio); // Optimize for high DPI
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap at 2: higher ratios cost fill rate on a 60,000 particle scene with no visible gain
         document.body.appendChild(renderer.domElement);
 
         // --- TEXTURE GENERATION (Dust Look) ---
