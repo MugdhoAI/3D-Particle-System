@@ -285,21 +285,19 @@
                     // Calculate area. Approx range is 0.02 (far) to 0.15 (close)
                     const area = getHandBoundingBoxArea(landmarks);
                     
-                    // Logic: 
-                    // Hand Large (Close to cam) -> Object moves Away (Z increases, Scale down)
-                    // Hand Small (Far from cam) -> Object moves Closer (Z decreases, Scale up)
-                    
+                    // Logic:
+                    // Hand large (close to camera) -> push the object away
+                    //   from the camera, targetZ -50.
+                    // Hand small (far from camera) -> pull the object closer
+                    //   to the camera, targetZ 20.
+
                     // Normalize area roughly between 0.03 and 0.12
-                    let norm = (area - 0.03) / (0.12 - 0.03); 
+                    let norm = (area - 0.03) / (0.12 - 0.03);
                     if(norm < 0) norm = 0; if(norm > 1) norm = 1;
 
-                    // If hand is CLOSE (norm 1), push object AWAY (negative Z or smaller scale)
-                    // Let's modify the Object Z Position
-                    // Range: Close (-20) to Far (20)
-                    
-                    // Moving hand closer (Big Area) -> Push object to -50
-                    // Moving hand back (Small Area) -> Pull object to 20
-                    const targetZPos = 20 - (norm * 70); 
+                    // If hand is CLOSE (norm 1), push object AWAY (negative Z)
+                    // Range: close hand -50 to far hand 20.
+                    const targetZPos = 20 - (norm * 70);
                     
                     // Smoothly interpolate current Z to target Z
                     targetZ = targetZPos;
