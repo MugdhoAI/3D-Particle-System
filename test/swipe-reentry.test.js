@@ -118,6 +118,18 @@ function gunResults(wristX) {
     return { multiHandLandmarks: [landmarks] };
 }
 
+function swipeResults(wristX) {
+    // Two fingers folded, two extended: the page reads this as a swipe pose.
+    const landmarks = [];
+    for (let i = 0; i < 21; i++) landmarks.push({ x: wristX + 0.05, y: 0.5, z: 0 });
+    landmarks[0] = { x: wristX, y: 0.5, z: 0 }; // wrist
+    landmarks[8] = { x: wristX + 0.2, y: 0.5, z: 0 }; // index tip, extended
+    landmarks[12] = { x: wristX + 0.01, y: 0.5, z: 0 }; // middle tip, folded
+    landmarks[16] = { x: wristX + 0.2, y: 0.5, z: 0 }; // ring tip, extended
+    landmarks[20] = { x: wristX + 0.01, y: 0.5, z: 0 }; // pinky tip, folded
+    return { multiHandLandmarks: [landmarks] };
+}
+
 test('hand re-entering at a new position does not spin the view', () => {
     hookObj.onResults(handResults(0.2)); // hand present at x = 0.2
     hookObj.onResults(noHandResults);    // hand leaves the frame
@@ -160,4 +172,9 @@ test('shattered particles stay within the bounding radius', () => {
 test('pixel ratio is capped at 2 on high-DPI screens', () => {
     const page = loadPage(3);
     assert.equal(page.pixelRatio, 2);
+});
+
+test('a partially folded hand reads as SWIPE', () => {
+    hookObj.onResults(swipeResults(0.5));
+    assert.equal(hookObj.gesture, 'SWIPE');
 });

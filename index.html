@@ -181,7 +181,7 @@
         scene.add(particleSystem);
 
         // --- INTERACTION LOGIC ---
-        let CURRENT_GESTURE = "NONE"; // NONE, FIST, OPEN, GUN
+        let CURRENT_GESTURE = "NONE"; // NONE, FIST, OPEN, GUN, SWIPE
         let rotationVelocity = 0.001;
         const SWIPE_MIN_DELTA = 0.01; // Ignore smaller wrist moves
         const SWIPE_SENSITIVITY = 0.05; // Rotation gained per unit of swipe
@@ -239,7 +239,7 @@
             if (foldedCount === 0) {
                 return "OPEN";
             }
-            return "SWIPE_MODE";
+            return "SWIPE";
         }
 
         function getHandBoundingBoxArea(landmarks) {
