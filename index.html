@@ -183,6 +183,8 @@
         // --- INTERACTION LOGIC ---
         let CURRENT_GESTURE = "NONE"; // NONE, FIST, OPEN, GUN
         let rotationVelocity = 0.001;
+        const SWIPE_MIN_DELTA = 0.01; // Ignore smaller wrist moves
+        const SWIPE_SENSITIVITY = 0.05; // Rotation gained per unit of swipe
         let lastHandX = 0.5;
         let handWasPresent = false; // Tracks whether the previous frame had a hand
         
@@ -196,7 +198,7 @@
 
         // Gesture Detection Helpers
         function getDistance(p1, p2) {
-            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
         }
 
         function analyzeGesture(landmarks) {
@@ -271,8 +273,8 @@
                 if (handWasPresent) {
                     const deltaX = currentX - lastHandX;
                     // Add momentum if moving significantly
-                    if (Math.abs(deltaX) > 0.01) {
-                        rotationVelocity -= deltaX * 0.05; // Reverse direction for natural mirror feel
+                    if (Math.abs(deltaX) > SWIPE_MIN_DELTA) {
+                        rotationVelocity -= deltaX * SWIPE_SENSITIVITY; // Reverse direction for natural mirror feel
                     }
                 }
                 lastHandX = currentX;
@@ -352,7 +354,6 @@
             // 1. Update Particle Physics
             const posAttr = geometry.attributes.position;
             const targetAttr = geometry.attributes.target;
-            const sizeAttr = geometry.attributes.size;
 
             const speed = 4.0 * delta; // Assembly speed
 
