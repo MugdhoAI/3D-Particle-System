@@ -82,7 +82,7 @@ const sandbox = {
 vm.createContext(sandbox);
 
 // Expose the page's own onResults and rotation state to the test.
-const hook = '\n;globalThis.__hook = { onResults, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; } };';
+const hook = '\n;globalThis.__hook = { onResults, animate, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; }, get positions() { return geometry.attributes.position.array; } };';
 vm.runInContext(match[1] + hook, sandbox);
 const hookObj = sandbox.__hook;
 assert.ok(hookObj && typeof hookObj.onResults === 'function', 'onResults hook missing');
@@ -135,4 +135,17 @@ test('losing the hand resets the gesture and depth target', () => {
     hookObj.onResults(noHandResults); // hand leaves the frame
     assert.equal(hookObj.gesture, 'NONE');
     assert.equal(hookObj.targetZ, 0);
+});
+
+test('shattered particles stay within the bounding radius', () => {
+    hookObj.gesture = 'OPEN';
+    for (let n = 0; n < 300; n++) hookObj.animate(); // 300 frames of shattering
+    const pos = hookObj.positions;
+    let maxR = 0;
+    for (let i = 0; i < pos.length; i += 3) {
+        const r = Math.sqrt(pos[i] * pos[i] + pos[i + 1] * pos[i + 1] + pos[i + 2] * pos[i + 2]);
+        if (r > maxR) maxR = r;
+    }
+    // Positions live in a Float32Array, so allow float32 rounding past 120.
+    assert.ok(maxR <= 120 + 1e-4, `expected max radius <= 120, got ${maxR}`);
 });

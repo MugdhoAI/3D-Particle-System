@@ -72,6 +72,7 @@
     <script>
         // --- CONFIGURATION ---
         const PARTICLE_COUNT = 60000;
+        const MAX_SCATTER_RADIUS = 120; // Shattered particles stay within this radius
         const COLORS = [0xC2B280, 0xD4AF37, 0xEEDC82]; // Ochre, Gold, Sandy
         
         // --- THREE.JS SETUP ---
@@ -378,11 +379,19 @@
                     const dirZ = pz / dist;
 
                     // Add velocity
-                    posAttr.setXYZ(i, 
-                        px + dirX * 40 * delta, 
-                        py + dirY * 40 * delta, 
-                        pz + dirZ * 40 * delta
-                    );
+                    let nx = px + dirX * 40 * delta;
+                    let ny = py + dirY * 40 * delta;
+                    let nz = pz + dirZ * 40 * delta;
+
+                    // Keep shattered particles in view. Without a bound they
+                    // drift thousands of units out and never come back.
+                    const nDist = Math.sqrt(nx*nx + ny*ny + nz*nz);
+                    if (nDist > MAX_SCATTER_RADIUS) {
+                        const k = MAX_SCATTER_RADIUS / nDist;
+                        nx *= k; ny *= k; nz *= k;
+                    }
+
+                    posAttr.setXYZ(i, nx, ny, nz);
 
                 } else if (CURRENT_GESTURE === "FIST") {
                     // ASSEMBLE: Strong pull to target
