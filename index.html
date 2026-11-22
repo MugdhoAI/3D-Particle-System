@@ -183,6 +183,8 @@
         // --- INTERACTION LOGIC ---
         let CURRENT_GESTURE = "NONE"; // NONE, FIST, OPEN, GUN, SWIPE
         let rotationVelocity = 0.001;
+        const MAX_FRAME_DELTA = 0.05; // Seconds. Longer frames (tab switch, slow device) are treated as this long
+        const ROTATION_FRICTION = 0.95; // Fraction of swipe velocity kept per 1/60s frame
         const SWIPE_MIN_DELTA = 0.01; // Ignore smaller wrist moves
         const SWIPE_SENSITIVITY = 0.05; // Rotation gained per unit of swipe
         let lastHandX = 0.5;
@@ -346,7 +348,13 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            const delta = clock.getDelta();
+            // Clamp the frame time. getDelta() reports the whole gap since
+            // the last frame, so returning to a hidden tab can hand back
+            // seconds at once. Unclamped, the assembly step (4 * delta)
+            // overshoots every target many times over, the depth smoothing
+            // jumps past its target, and one shatter step teleports every
+            // particle to the scatter bound.
+            const delta = Math.min(clock.getDelta(), MAX_FRAME_DELTA);
             const time = clock.getElapsedTime();
 
             // 1. Update Particle Physics
@@ -416,8 +424,10 @@
             posAttr.needsUpdate = true;
 
             // 2. Global Rotation (Swipe)
-            // Apply friction
-            rotationVelocity *= 0.95; 
+            // Apply friction scaled by elapsed time, so a swipe decays at
+            // the same rate per second on a 120Hz display as on a 60Hz one
+            // instead of twice as fast.
+            rotationVelocity *= Math.pow(ROTATION_FRICTION, delta * 60);
             // Keep a minimum idle spin
             if (Math.abs(rotationVelocity) < 0.0005) rotationVelocity = 0.0005;
 

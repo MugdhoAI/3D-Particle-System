@@ -43,7 +43,12 @@ class StubRenderer {
     setPixelRatio(r) { this.pixelRatio = r; }
     render() {}
 }
-class StubClock { getDelta() { return 0.016; } getElapsedTime() { return 0; } }
+class StubClock {
+    // Tests set StubClock.delta to simulate short or long frames.
+    static delta = 1 / 60;
+    getDelta() { return StubClock.delta; }
+    getElapsedTime() { return 0; }
+}
 class StubHands { setOptions() {} onResults() {} }
 class StubCamera { start() {} }
 
@@ -85,7 +90,7 @@ function loadPage(devicePixelRatio) {
     vm.createContext(sandbox);
 
     // Expose the page's own onResults and rotation state to the test.
-    const hook = '\n;globalThis.__hook = { onResults, animate, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; }, get positions() { return geometry.attributes.position.array; }, get pixelRatio() { return renderer.pixelRatio; } };';
+    const hook = '\n;globalThis.__hook = { onResults, animate, get velocity() { return rotationVelocity; }, set velocity(v) { rotationVelocity = v; }, get gesture() { return CURRENT_GESTURE; }, set gesture(g) { CURRENT_GESTURE = g; }, get targetZ() { return targetZ; }, get positions() { return geometry.attributes.position.array; }, get targets() { return geometry.attributes.target.array; }, get pixelRatio() { return renderer.pixelRatio; } };';
     vm.runInContext(match[1] + hook, sandbox);
     const hookObj = sandbox.__hook;
     assert.ok(hookObj && typeof hookObj.onResults === 'function', 'onResults hook missing');
@@ -177,4 +182,63 @@ test('pixel ratio is capped at 2 on high-DPI screens', () => {
 test('a partially folded hand reads as SWIPE', () => {
     hookObj.onResults(swipeResults(0.5));
     assert.equal(hookObj.gesture, 'SWIPE');
+});
+
+function totalDistanceToTargets(page) {
+    const pos = page.positions;
+    const tgt = page.targets;
+    let total = 0;
+    const before = [];
+    for (let i = 0; i < pos.length; i += 3) {
+        const d = Math.hypot(pos[i] - tgt[i], pos[i + 1] - tgt[i + 1], pos[i + 2] - tgt[i + 2]);
+        before.push(d);
+        total += d;
+    }
+    return { before, total };
+}
+
+test('a long frame after a tab switch does not overshoot the assembled targets', () => {
+    const page = loadPage(1);
+    page.gesture = 'FIST';
+    const { before, total: totalBefore } = totalDistanceToTargets(page);
+    StubClock.delta = 5; // five seconds since the last frame, as after a tab switch
+    try {
+        page.animate();
+    } finally {
+        StubClock.delta = 1 / 60;
+    }
+    const pos = page.positions;
+    const tgt = page.targets;
+    let totalAfter = 0;
+    for (let n = 0, i = 0; i < pos.length; i += 3, n++) {
+        const d = Math.hypot(pos[i] - tgt[i], pos[i + 1] - tgt[i + 1], pos[i + 2] - tgt[i + 2]);
+        totalAfter += d;
+        assert.ok(d <= before[n] + 1e-3,
+            `particle ${n} moved away from its target: ${before[n]} to ${d}`);
+    }
+    assert.ok(totalAfter < totalBefore * 0.9,
+        `expected assembly to make progress, total distance ${totalBefore} to ${totalAfter}`);
+    assert.ok(totalAfter > totalBefore * 0.5,
+        `expected a clamped step, not a teleport to the targets, total distance ${totalBefore} to ${totalAfter}`);
+});
+
+test('swipe friction decays per second, not per frame', () => {
+    // Half a second of decay at 60fps and at 30fps must end at the same velocity.
+    const at60 = loadPage(1);
+    at60.velocity = 0.02;
+    StubClock.delta = 1 / 60;
+    for (let n = 0; n < 30; n++) at60.animate();
+
+    const at30 = loadPage(1);
+    at30.velocity = 0.02;
+    StubClock.delta = 1 / 30;
+    try {
+        for (let n = 0; n < 15; n++) at30.animate();
+    } finally {
+        StubClock.delta = 1 / 60;
+    }
+    assert.ok(Math.abs(at60.velocity - at30.velocity) < 1e-9,
+        `expected equal decay over 0.5s, got ${at60.velocity} at 60fps and ${at30.velocity} at 30fps`);
+    assert.ok(at60.velocity > 0.0005 && at60.velocity < 0.02,
+        `expected partial decay, got ${at60.velocity}`);
 });
