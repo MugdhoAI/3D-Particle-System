@@ -1,3 +1,5 @@
+<img src="./docs/assets/3d-particle-system-hero.svg?v=1" width="100%" alt="3D Particle System: a gold dust particle core with a ring, controlled by hand gestures" />
+
 # 3D Particle System
 
 A 3D particle system you control with your hands. 60,000 gold dust particles float as a core with a ring, and your webcam reads your gestures: make a fist to pull the dust together, open your hand to shatter it, hold a gun shape to push it closer or pull it back, swipe to spin the view.
